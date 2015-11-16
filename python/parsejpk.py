@@ -1,25 +1,26 @@
 #!/usr/bin/python
-def parsejpkfile(fname, col_heads = ["vDeflection", "smoothedCapacitiveSensorHeight"]):
+def parsejpkfile(fname, col_heads = {'vDeflection':'d', 'smoothedCapacitiveSensorHeight':'z'}, constants = {'springConstant:':'kcant', 'sensitivity:':'sens'}):
 	from numpy import array
-	csvrows, struct = [], {'springConstant:':[],'sensitivity:':[]}
+	fstruc = {value:[] for value in col_heads.itervalues() + constants.itervalues()}
 	with open(fname) as f:
-		snarfed = (row.strip().split(' ') for row in f if row.strip('#').strip())
-		for row in snarfed:
-			if row[1] == 'columns:':
-				cols = {hdr:row.index(hdr)-2 for hdr in col_heads}
-			elif row[0] == '#':
-				if len(row) >= 3: struct[row[1]] = row[2] #catch any extra information in the file
-			elif row[0] != '#':
-				csvrows.append(row)
-	for hdr in col_heads:
-		if not hdr in cols.keys():
-			print('Missing ',hdr, ' column')
-			return
-		else:
-			column = array([float(row[cols[hdr]]) for row in csvrows])
-			struct[hdr] = column.reshape((-1,1))
-	return struct
-			
+		rows = (row.strip().split(' ') for row in f if row.strip('#').strip()) # this generator object basically filters out empty lines and makes the others easier to process
+		for r in rows:
+			if r[0] == '#' and r[1] == 'columns:':
+				cols = {col_heads[hdr]:r.index(hdr)-2 for hdr in col_heads.iterkeys()}
+				for hdr in col_heads:
+					if not hdr in cols.keys():
+						print('Missing', hdr, ' column')
+						return
+			elif r[0] == '#' and any(r[1] == key for key in revconst.keys()):
+				fstruc[constants[r[1]]] = r[2]
+			elif r[0] != '#':
+				for hdr in cols.iterkeys():
+					fstruc[hdr].append(float(r[cols[hdr]]))
+	for hdr in col_heads.itervalues:
+		fstruc[hdr] = array(fstruc[hdr])
+		fstruc[hdr] = fstruc[hdr].reshape((-1,1))
+	return fstruc
+
 def selectdir(conffile = '.parsejpk_lastdir', indir = ''):
 	from Tkinter import Tk	# ugly, but functional
 	from tkFileDialog import askdirectory
@@ -33,29 +34,17 @@ def selectdir(conffile = '.parsejpk_lastdir', indir = ''):
 		cf.write(dirname(abspath(folder)))
 	return folder
 
-def parsejpkdir(folder = '', mode = 'v'):
+def parsejpkdir(folder = ''):
 	from os import listdir
 	from os.path import isfile, join, isdir, split
 	from numpy import hstack
 	if not folder: folder = selectdir()
-	#proc_dirs = [join(folder, d) for d in listdir(folder) if isdir(join(folder, d)) and d.find('processed') > -1]
-	#if not proc_dirs:
-		#print(basename(folder) + ': No exported files found')
-	#	return None
-	#exped = sorted(proc_dirs)[-1] # this should sort the processed directories by timestamp and pick the latest one
-	#f_ls = sorted([join(exped, f) for f in listdir(exped) if isfile(join(exped, f)) and f.endswith('.txt')])
 	f_ls = sorted([join(folder, f) for f in listdir(folder) if isfile(join(folder, f)) and f.endswith('.txt')])
-	z, d, fnames, sensitivity, springConstant = [], [], [], [], []
+	dirstruct = {'directory':folder}
 	for f in f_ls:
-		struct = parsejpkfile(f)
-		z.append(struct['smoothedCapacitiveSensorHeight'])
-		d.append(struct['vDeflection'])
-		fnames.append(split(f))
-		sensitivity.append(struct['sensitivity:']);
-		springConstant.append(struct['springConstant:']);
-	struct = {'z': hstack(z), 'd': hstack(d), 'file_names': fnames, 'sensitivity': sensitivity, 'springConstant':springConstant}
-	return struct
-	
+		dirstruct[f] = parsejpkfile(f)
+	return dirstruct
+
 def jpkmat(folder = '', arg = 'n'):
 	from os import listdir
 	from os.path import isdir, join, abspath, pardir, basename
@@ -76,10 +65,10 @@ def jpkmat(folder = '', arg = 'n'):
 		else:
 			stdout.write("|")
 		stdout.flush()
-		dstruct = parsejpkdir(d, mode = 'v')
+		dstruct = parsejpkdir(d)
 		if dstruct:
 			savemat(join(abspath(join(d, pardir)), '.'.join([d,'mat'])), dstruct)
-			with open(join(folder, 'springConstantIndex.csv'), 'a') as kInd: kInd.write(basename(d) + ', ' + str(dstruct['springConstant'][0]) + '\n') 
+			with open(join(folder, 'springConstantIndex.csv'), 'a') as kInd: kInd.write(basename(d) + ', ' + str(dstruct['kcant'][0]) + '\n')
 		else:
 			notexped.append(basename(d))
 	stdout.write("\n")
@@ -88,10 +77,10 @@ def jpkmat(folder = '', arg = 'n'):
 		for f in notexped:
 			print
 	return None
-					
+
 if __name__ == "__main__":
 	import sys
-	
+
 	if len(sys.argv) > 1:
 		if sys.argv[1] == 'v':
 			print('Verbose \n')
